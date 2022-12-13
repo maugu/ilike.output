@@ -1,0 +1,10 @@
+Package: ilikeoutput
+Type: Package
+Title: Visualising output from the ilike package.
+Version: 0.1.0
+Author: Richard Everitt
+Maintainer: The package maintainer <richard.g.everitt@gmail.com>
+Description: Visualising output from the ilike package.
+License: BSD 2-Clause License
+Encoding: UTF-8
+LazyData: true
