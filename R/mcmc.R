@@ -1,169 +1,235 @@
-#' Loading MCMC output into R memory.
-#'
-#' @param results_directory The folder in which the results are stored.
-#' @param thinning (optional) The granularity of the thinning of the MCMC output.
-#' @return A list containing the MCMC chains.
-#' @export
-load_mcmc_output = function(results_directory,
-                            thinning = 1)
+resolve_chain_label_and_remove_iteration = function(output)
 {
-  results_directory = paste(results_directory,"/ilike_smc",sep="")
-
-  # Throw error if directory does not exist.
-  if (!dir.exists(results_directory))
+  if ( ("Iteration" %in% names(output)) && ("Chain" %in% names(output)) && ("Parameter" %in% names(output)) && ("value" %in% names(output)) && (length(names(output))==4) )
   {
-    stop(paste("Results directory ",results_directory," does not exist.",sep=""))
-  }
-
-  # Make the output names.
-
-  names_file = file(paste(results_directory,"/vector_variables.txt",sep=""),open="r")
-  line = ""
-  while (TRUE)
-  {
-    previous_line = line
-    line = readLines(names_file, n = 1)
-    if ( length(line) == 0 )
-    {
-      break
-    }
-  }
-  close(names_file)
-  variable_names = strsplit(previous_line,";")[[1]]
-
-  sizes_file = file(paste(results_directory,"/vector_variable_sizes.txt",sep=""),open="r")
-  while (TRUE)
-  {
-    previous_line = line
-    line = readLines(sizes_file, n = 1)
-    if ( length(line) == 0 )
-    {
-      break
-    }
-  }
-  close(sizes_file)
-  variable_sizes = as.numeric(strsplit(previous_line,";")[[1]])
-
-  lengths_file = file(paste(results_directory,"/output_lengths.txt",sep=""),open="r")
-  while (TRUE)
-  {
-    previous_line = line
-    line = readLines(lengths_file, n = 1)
-    if ( length(line) == 0 )
-    {
-      break
-    }
-  }
-  close(lengths_file)
-  output_lengths = as.numeric(strsplit(previous_line,",")[[1]])
-  number_of_chains = length(output_lengths)
-
-  if (length(variable_names)!=length(variable_sizes))
-  {
-    stop("Variable names and sizes are of different lengths.")
-  }
-
-  output_names = rep("",sum(variable_sizes))
-  counter = 1
-  for (i in 1:length(variable_sizes))
-  {
-    for (j in 1:variable_sizes[i])
-    {
-      output_names[counter] = paste(variable_names[i],j,sep="")
-      counter = counter + 1
-    }
-  }
-
-  # Find the final iteration of the SMC algorithm in which the MCMC is stored - this is the folder we need to look in.
-  counter = 0
-  terminate = FALSE
-  iteration_directory = ""
-  while (terminate==FALSE)
-  {
-    previous_iteration_directory = iteration_directory
-    iteration_directory = paste(results_directory,"/iteration",counter,sep="")
-    if (!dir.exists(iteration_directory))
-    {
-      terminate = TRUE
-    }
-    else
-    {
-      counter = counter + 1
-    }
-  }
-
-  # Store the output in a data frame.
-
-  # Get number of lines.
-  points_filename = paste(previous_iteration_directory,"/vector_points.txt",sep="")
-  points_file = file(points_filename,open="r")
-
-  browser()
-
-  # Might not need this part if we write the dimensions to an additional file (see output_lengths file, for example).
-  number_of_lines = 0
-  while (TRUE)
-  {
-    line = readLines(sizes_file, n = 1)
-
-    if (number_of_lines==0)
-    {
-      output_cols = length(strsplit(line,",")[[1]])
-      break
-    }
-
-    # if ( length(line) == 0 )
-    # {
-    #   break
-    # }
-    # else
-    # {
-    #   number_of_lines = number_of_lines + 1
-    # }
-  }
-  close(points_file)
-
-  all_output_rows = floor(output_lengths/thinning)
-
-  if (max(all_output_rows)>0)
-  {
-    output = data.frame(matrix(0,max(all_output_rows),output_cols))
-    colnames(output) = output_names
-
-    points_file = file(points_filename,open="r")
-    line_counter = 0
-    point_index = 0
-    chain_index = 1
-
-    while (TRUE)
-    {
-      line = readLines(sizes_file, n = 1)
-      line_counter = line_counter + 1
-
-      if ( length(line) == 0 )
-      {
-        break
-      }
-      else
-      {
-        if ((line_counter %% thinning)==0)
-        {
-          point_index = point_index + 1
-          output[point_index,] = as.numeric(strsplit(line,",")[[1]])
-        }
-      }
-
-      if ((line_counter %% sum(output_lengths[1:chain_index]))==0)
-      {
-        chain_index = chain_index + 1
-      }
-    }
-    close(points_file)
-
-    return(output)
+    # data is in tidy format
+    output = tidyr::pivot_wider(output,names_from = "Parameter",values_from = "value")
   }
   else
   {
-    stop("No rows found for output.")
+    # Determine which column contains the chain index.
+    if (is.null(chain_column_index))
+    {
+      if ("chain" %in% names(output))
+      {
+        output = dplyr::rename(output,Chain=chain)
+      }
+      else if ("Chain" %in% names(output))
+      {
+        # do nothing
+      }
+      else
+      {
+        stop("No chain index identified.")
+      }
+    }
+    else
+    {
+      output = as.data.frame(output)
+      if ( (chain_index>0) && (chain_index<ncol(output)) )
+      {
+        names(output)[names(output) == paste("V",chain_index,sep="")] = "Chain"
+      }
+      else
+      {
+        stop("chain_index is out of range of output file.")
+      }
+    }
   }
+
+  if ("Iteration" %in% names(output))
+  {
+    output = dplyr::select(output,!c("Iteration"))
+  }
+
+  return(output)
+}
+
+#' Find the expectation from multiple chains.
+#'
+#' @param mcmc_output MCMC output, from ilike::load_mcmc_output or otherwise. Can be in tidy format, or in standard nIterations*nVariables format. Both cases must contain a column that labels the chain the output is from.
+#' @param burn_in (optional) The number of initial iterations to be omitted.
+#' @param chain_column_index (optional) The index of the column containing the chain index, needed if there is no column named "chain" or "Chain".
+#' @return A list giving the expectation of each parameter, for each chain.
+#' @export
+expectation_each_chain = function(output,
+                                  burn_in = 0,
+                                  chain_index = NULL)
+{
+  output = resolve_chain_label_and_remove_iteration(output)
+
+  chain_labels = unique(output$Chain)
+  nChains = length(chain_labels)
+  expectations = vector(mode='list', length=nChains)
+  for (i in 1:nChains)
+  {
+    current_chain = dplyr::select(dplyr::filter(output,Chain==chain_labels[i]),!c("Chain"))
+    expectations[[i]] = colMeans(current_chain)
+  }
+
+  return(expectations)
+}
+
+#' Find the sd from multiple chains.
+#'
+#' @param mcmc_output MCMC output, from ilike::load_mcmc_output or otherwise. Can be in tidy format, or in standard nIterations*nVariables format. Both cases must contain a column that labels the chain the output is from.
+#' @param burn_in (optional) The number of initial iterations to be omitted.
+#' @param chain_column_index (optional) The index of the column containing the chain index, needed if there is no column named "chain" or "Chain".
+#' @return A list giving the sd of each parameter, for each chain.
+#' @export
+sd_each_chain = function(output,
+                         burn_in = 0,
+                         chain_index = NULL)
+{
+  output = resolve_chain_label_and_remove_iteration(output)
+
+  chain_labels = unique(output$Chain)
+  nChains = length(chain_labels)
+  sds = vector(mode='list', length=nChains)
+  for (i in 1:nChains)
+  {
+    current_chain = dplyr::select(dplyr::filter(output,Chain==chain_labels[i]),!c("Chain"))
+    sds[[i]] = apply(current_chain, 2, sd)
+  }
+
+  return(sds)
+}
+
+#' Find the covariance from multiple chains.
+#'
+#' @param mcmc_output MCMC output, from ilike::load_mcmc_output or otherwise. Can be in tidy format, or in standard nIterations*nVariables format. Both cases must contain a column that labels the chain the output is from.
+#' @param burn_in (optional) The number of initial iterations to be omitted.
+#' @param chain_column_index (optional) The index of the column containing the chain index, needed if there is no column named "chain" or "Chain".
+#' @return A list giving the covariance for each chain.
+#' @export
+cov_each_chain = function(output,
+                          burn_in = 0,
+                          chain_index = NULL)
+{
+  output = resolve_chain_label_and_remove_iteration(output)
+
+  chain_labels = unique(output$Chain)
+  nChains = length(chain_labels)
+  covs = vector(mode='list', length=nChains)
+  for (i in 1:nChains)
+  {
+    current_chain = dplyr::select(dplyr::filter(output,Chain==chain_labels[i]),!c("Chain"))
+    covs[[i]] = cov(current_chain)
+  }
+
+  return(covs)
+}
+
+#' Find the multiESS (from the mcmcse package) from multiple chains.
+#'
+#' @param mcmc_output MCMC output, from ilike::load_mcmc_output or otherwise. Can be in tidy format, or in standard nIterations*nVariables format. Both cases must contain a column that labels the chain the output is from.
+#' @param burn_in (optional) The number of initial iterations to be omitted.
+#' @param chain_column_index (optional) The index of the column containing the chain index, needed if there is no column named "chain" or "Chain".
+#' @return A list giving the multiESS for each chain.
+#' @export
+multiESS = function(output,
+                    burn_in = 0,
+                    chain_index = NULL)
+{
+  output = resolve_chain_label_and_remove_iteration(output)
+
+  chain_labels = unique(output$Chain)
+  nChains = length(chain_labels)
+  ess_output = vector(mode='list', length=nChains)
+  for (i in 1:nChains)
+  {
+    current_chain = dplyr::select(dplyr::filter(output,Chain==chain_labels[i]),!c("Chain"))
+    ess_output[[i]] = mcmcse::multiESS(current_chain)
+  }
+
+  return(ess_output)
+}
+
+#' Find the mean across Monte Carlo runs.
+#'
+#' @param per_chain_output Estimate calculated from each chain MCMC in output.
+#' @return A vector giving the mean for each estimate across the chains.
+#' @export
+monte_carlo_mean = function(per_chain_output)
+{
+  return(Reduce("+",per_chain_output)/length(per_chain_output))
+}
+
+#' Find the variance across Monte Carlo runs.
+#'
+#' @param per_chain_output Estimate calculated from each chain MCMC in output.
+#' @return A vector giving the variance for each estimate across the chains.
+#' @export
+monte_carlo_variance = function(per_chain_output)
+{
+  mean = monte_carlo_mean(per_chain_output)
+
+  if (length(per_chain_output)>0)
+  {
+    if (length(mean)>1)
+    {
+      squared_diff_from_mean = matrix(0,nrow(mean),ncol(mean))
+    }
+    else
+    {
+      squared_diff_from_mean = 0
+    }
+
+    for (i in 1:length(per_chain_output))
+    {
+      squared_diff_from_mean = squared_diff_from_mean + (per_chain_output[[i]] - mean)^2
+    }
+
+    return(squared_diff_from_mean/length(per_chain_output))
+  }
+  else
+  {
+    stop("Input is an empty list.")
+  }
+}
+
+#' Find the bias across Monte Carlo runs.
+#'
+#' @param per_chain_output Estimate calculated from each chain MCMC in output.
+#' @param truth The true value being estimated.
+#' @return A vector giving the bias for each estimate across the chains.
+#' @export
+monte_carlo_bias = function(per_chain_output,
+                            truth)
+{
+  mean = monte_carlo_mean(per_chain_output)
+  if (length(truth)==length(mean))
+  {
+    if (length(truth)>1)
+    {
+      if ( (nrow(mean)!=nrow(truth)) || (ncol(mean)!=ncol(truth)) )
+      {
+        return(mean-truth)
+      }
+      else
+      {
+        stop("Output and truth have different dimensions.")
+      }
+    }
+    else
+    {
+      return(mean-truth)
+    }
+  }
+  else
+  {
+    stop("Output and truth have different dimensions.")
+  }
+}
+
+#' Find the mean square error across Monte Carlo runs.
+#'
+#' @param per_chain_output Estimate calculated from each chain MCMC in output.
+#' @param truth The true value being estimated.
+#' @return A vector giving the mean square error for each estimate across the chains.
+#' @export
+monte_carlo_mse = function(per_chain_output,
+                           truth)
+{
+  return(monte_carlo_bias(per_chain_output,truth)^2 + monte_carlo_variance(per_chain_output))
 }
