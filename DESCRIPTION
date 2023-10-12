@@ -10,8 +10,8 @@ Encoding: UTF-8
 LazyData: true
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.2.3
-URL: https://github.com/maugu/ilike
-BugReports: https://github.com/maugu/ilike.output/issues
+URL: https://github.com/richard.g.everitt/ilike.output
+BugReports: https://github.com/richard.g.everitt/ilike.output/issues
 Imports: tidyr, dplyr, mcmcse
 Suggests: knitr, rmarkdown, testthat
 VignetteBuilder: knitr

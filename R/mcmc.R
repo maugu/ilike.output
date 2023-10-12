@@ -1,4 +1,5 @@
-resolve_chain_label_and_remove_iteration = function(output)
+resolve_chain_label_and_remove_iteration = function(output,
+                                                    chain_index=NULL)
 {
   if ( ("Iteration" %in% names(output)) && ("Chain" %in% names(output)) && ("Parameter" %in% names(output)) && ("value" %in% names(output)) && (length(names(output))==4) )
   {
@@ -8,7 +9,7 @@ resolve_chain_label_and_remove_iteration = function(output)
   else
   {
     # Determine which column contains the chain index.
-    if (is.null(chain_column_index))
+    if (is.null(chain_index))
     {
       if ("chain" %in% names(output))
       {
@@ -127,9 +128,9 @@ cov_each_chain = function(output,
 #' @param chain_column_index (optional) The index of the column containing the chain index, needed if there is no column named "chain" or "Chain".
 #' @return A list giving the multiESS for each chain.
 #' @export
-multiESS = function(output,
-                    burn_in = 0,
-                    chain_index = NULL)
+multiESS_each_chain = function(output,
+                               burn_in = 0,
+                               chain_index = NULL)
 {
   output = resolve_chain_label_and_remove_iteration(output)
 
