@@ -65,6 +65,7 @@ expectation_each_chain = function(output,
   for (i in 1:nChains)
   {
     current_chain = dplyr::select(dplyr::filter(output,Chain==chain_labels[i]),!c("Chain"))
+    browser()
     expectations[[i]] = colMeans(current_chain)
   }
 
