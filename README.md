@@ -1,2 +1,2 @@
 # ilike.output
-Visualising output from the ilike package.
+Running, and processing the output from, the ilike package.
